@@ -1,64 +1,68 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
-class City(models.Model):
+class Location(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    image = models.ImageField(upload_to='cities/', null=True, blank=True)
-    tagline = models.CharField(max_length=255, null=True, blank=True, help_text="e.g., The Silicon Valley of India")
-    description = models.TextField(null=True, blank=True, help_text="Rich storytelling about the city vibe")
+    image = models.CharField(max_length=255, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return self.name
 
-class SpaceType(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(max_length=100, unique=True)
+class Area(models.Model):
+    location = models.ForeignKey(Location, on_delete=models.CASCADE, related_name='areas')
+    name = models.CharField(max_length=100)
+    
+    class Meta:
+        unique_together = ('location', 'name')
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.location.name})"
 
 class Space(models.Model):
     name = models.CharField(max_length=255)
-    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='spaces')
-    area = models.CharField(max_length=255)
-    space_type = models.ForeignKey(SpaceType, on_delete=models.CASCADE, related_name='spaces')
+    area = models.ForeignKey(Area, on_delete=models.CASCADE, related_name='spaces')
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    image = models.ImageField(upload_to='spaces/')
-    bookspace = models.CharField(max_length=255, help_text="e.g., Meeting Rooms · 6 Seater")
-    tag = models.CharField(max_length=50, null=True, blank=True)
-    description = models.TextField(null=True, blank=True)
-    
-    listed_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='listed_spaces', null=True, blank=True)
+    rating = models.FloatField(default=0.0)
+    facilities = models.TextField(blank=True, null=True) # Comma separated
+    image = models.CharField(max_length=255, blank=True, null=True)
+    booking_rooms_details = models.CharField(max_length=255, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} - {self.city.name}"
+        return f"{self.name} - {self.area.name}"
 
 class Booking(models.Model):
-    STATUS_CHOICES = (
-        ('pending', 'Pending'),
-        ('confirmed', 'Confirmed'),
-        ('cancelled', 'Cancelled'),
-    )
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bookings')
     space = models.ForeignKey(Space, on_delete=models.CASCADE, related_name='bookings')
-    booking_date = models.DateField()
-    booking_time = models.TimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    full_name = models.CharField(max_length=255, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    
+    date = models.DateField()
+    time_slot = models.CharField(max_length=100)
+    duration = models.CharField(max_length=100, blank=True, null=True)
+    seats = models.IntegerField(default=1)
+    notes = models.TextField(blank=True, null=True)
+    
+    status = models.CharField(max_length=50, default='Confirmed')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Booking by {self.user.username} for {self.space.name} on {self.booking_date}"
+        return f"Booking by {self.user.username} for {self.space.name} on {self.date}"
 
 class Favorite(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favorites')
-    space = models.ForeignKey(Space, on_delete=models.CASCADE, related_name='favorited_by')
+    space = models.ForeignKey(Space, on_delete=models.CASCADE, related_name='favorites')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('user', 'space')
 
     def __str__(self):
-        return f"{self.user.username} - {self.space.name}"
+        return f"{self.user.username} favorited {self.space.name}"

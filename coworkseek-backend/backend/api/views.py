@@ -1,55 +1,55 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from .models import City, SpaceType, Space, Booking, Favorite
-from .serializers import CitySerializer, SpaceTypeSerializer, SpaceSerializer, BookingSerializer, UserSerializer, FavoriteSerializer
+from .models import Location, Area, Space, Booking, Favorite
+from .serializers import (
+    LocationSerializer, AreaSerializer, SpaceSerializer, 
+    BookingSerializer, UserSerializer, FavoriteSerializer
+)
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, logout
 from rest_framework.authtoken.models import Token
+from django.db.models import Q
 
-class CityViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = City.objects.all()
-    serializer_class = CitySerializer
+class LocationViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Location.objects.all()
+    serializer_class = LocationSerializer
 
-class SpaceTypeViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = SpaceType.objects.all()
-    serializer_class = SpaceTypeSerializer
+class AreaViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Area.objects.all()
+    serializer_class = AreaSerializer
 
-class SpaceViewSet(viewsets.ModelViewSet):
+    def get_queryset(self):
+        queryset = Area.objects.all()
+        location_id = self.request.query_params.get('location', None)
+        if location_id:
+            queryset = queryset.filter(location_id=location_id)
+        return queryset
+
+class SpaceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Space.objects.all()
     serializer_class = SpaceSerializer
 
     def get_queryset(self):
         queryset = Space.objects.all()
+        location_id = self.request.query_params.get('location', None)
+        area_id = self.request.query_params.get('area', None)
         city = self.request.query_params.get('city', None)
-        space_type = self.request.query_params.get('space_type', None)
-        listed_by = self.request.query_params.get('listed_by', None)
+        search = self.request.query_params.get('search', None)
 
+        if location_id:
+            queryset = queryset.filter(area__location_id=location_id)
+        if area_id:
+            queryset = queryset.filter(area_id=area_id)
         if city:
-            if city.isdigit():
-                queryset = queryset.filter(city_id=city)
-            else:
-                queryset = queryset.filter(city__name__iexact=city)
-        if space_type:
-            queryset = queryset.filter(space_type__slug=space_type)
-        
-        if listed_by == 'me' and self.request.user.is_authenticated:
-            queryset = queryset.filter(listed_by=self.request.user)
-        elif listed_by:
-            queryset = queryset.filter(listed_by_id=listed_by)
+            queryset = queryset.filter(area__location__name__iexact=city)
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | 
+                Q(description__icontains=search)
+            )
             
         return queryset
-
-    def perform_create(self, serializer):
-        if self.request.user.is_authenticated:
-            serializer.save(listed_by=self.request.user)
-        else:
-            serializer.save()
-
-    def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated()]
-        return [permissions.AllowAny()]
 
 class BookingViewSet(viewsets.ModelViewSet):
     serializer_class = BookingSerializer
@@ -81,6 +81,10 @@ class UserViewSet(viewsets.GenericViewSet):
     def login(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
+        
+        if not username or not password:
+            return Response({'error': 'Username and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+            
         user = authenticate(username=username, password=password)
         if user:
             token, created = Token.objects.get_or_create(user=user)
@@ -94,10 +98,22 @@ class UserViewSet(viewsets.GenericViewSet):
             })
         return Response({'error': 'Invalid Credentials'}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def logout(self, request):
+        try:
+            request.user.auth_token.delete()
+        except Exception:
+            pass
+        logout(request)
+        return Response({'success': 'Logged out successfully'})
+
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def me(self, request):
         serializer = self.get_serializer(request.user)
-        return Response(serializer.data)
+        data = serializer.data
+        data['bookings_count'] = Booking.objects.filter(user=request.user).count()
+        data['favorites_count'] = Favorite.objects.filter(user=request.user).count()
+        return Response(data)
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     serializer_class = FavoriteSerializer

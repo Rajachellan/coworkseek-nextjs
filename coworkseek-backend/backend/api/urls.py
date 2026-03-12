@@ -1,10 +1,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CityViewSet, SpaceTypeViewSet, SpaceViewSet, BookingViewSet, UserViewSet, FavoriteViewSet
+from .views import (
+    LocationViewSet, AreaViewSet, SpaceViewSet, 
+    BookingViewSet, UserViewSet, FavoriteViewSet
+)
 
 router = DefaultRouter()
-router.register(r'cities', CityViewSet)
-router.register(r'space-types', SpaceTypeViewSet)
+router.register(r'locations', LocationViewSet)
+router.register(r'areas', AreaViewSet)
 router.register(r'spaces', SpaceViewSet)
 router.register(r'bookings', BookingViewSet, basename='booking')
 router.register(r'users', UserViewSet, basename='user')
