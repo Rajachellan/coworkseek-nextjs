@@ -1,15 +1,20 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from .models import Location, Area, Space, Booking, Favorite
+from .models import Location, Area, Space, Booking, Favorite, Contact
 from .serializers import (
     LocationSerializer, AreaSerializer, SpaceSerializer, 
-    BookingSerializer, UserSerializer, FavoriteSerializer
+    BookingSerializer, UserSerializer, FavoriteSerializer, ContactSerializer
 )
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, logout
 from rest_framework.authtoken.models import Token
 from django.db.models import Q
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.core.mail import send_mail
+from django.conf import settings
 
 class LocationViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Location.objects.all()
@@ -79,12 +84,22 @@ class UserViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def login(self, request):
-        username = request.data.get('username')
+        identity = request.data.get('username') # Looking at 'username' field which acts as 'identity'
         password = request.data.get('password')
         
-        if not username or not password:
-            return Response({'error': 'Username and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not identity or not password:
+            return Response({'error': 'Identity and password are required'}, status=status.HTTP_400_BAD_REQUEST)
             
+        # Check if identity is an email
+        if '@' in identity:
+            user_obj = User.objects.filter(email=identity).first()
+            if user_obj:
+                username = user_obj.username
+            else:
+                return Response({'error': 'Invalid Credentials'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            username = identity
+
         user = authenticate(username=username, password=password)
         if user:
             token, created = Token.objects.get_or_create(user=user)
@@ -114,6 +129,75 @@ class UserViewSet(viewsets.GenericViewSet):
         data['bookings_count'] = Booking.objects.filter(user=request.user).count()
         data['favorites_count'] = Favorite.objects.filter(user=request.user).count()
         return Response(data)
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
+    def password_reset(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = User.objects.filter(email=email).first()
+        if user:
+            token = default_token_generator.make_token(user)
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            reset_url = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
+            
+            # Use console backend by default in settings
+            send_mail(
+                'Password Reset for CoworkSeek',
+                f'Please use the following link to reset your password: {reset_url}',
+                'noreply@coworkseek.com',
+                [email],
+                fail_silently=False,
+            )
+            
+        # We return 200 even if user doesn't exist for security (avoid email enumeration)
+        return Response({'success': 'Password reset email sent if account exists.'})
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
+    def password_reset_confirm(self, request):
+        uidb64 = request.data.get('uid')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        
+        if not all([uidb64, token, new_password]):
+            return Response({'error': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+            
+        if user is not None and default_token_generator.check_token(user, token):
+            user.set_password(new_password)
+            user.save()
+            return Response({'success': 'Password has been reset successfully.'})
+        else:
+            return Response({'error': 'Invalid reset link or token'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['patch', 'put'], permission_classes=[permissions.IsAuthenticated])
+    def update_profile(self, request):
+        user = request.user
+        data = request.data
+        
+        if 'username' in data:
+            user.username = data['username']
+        if 'email' in data:
+            user.email = data['email']
+        if 'first_name' in data:
+            user.first_name = data['first_name']
+        if 'last_name' in data:
+            user.last_name = data['last_name']
+            
+        user.save()
+        return Response(UserSerializer(user).data)
+
+class ContactViewSet(viewsets.ModelViewSet):
+    queryset = Contact.objects.all()
+    serializer_class = ContactSerializer
+    permission_classes = [permissions.AllowAny]
+    http_method_names = ['post'] # Only allow POST
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     serializer_class = FavoriteSerializer

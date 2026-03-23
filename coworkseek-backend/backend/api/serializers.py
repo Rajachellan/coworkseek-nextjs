@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Location, Area, Space, Booking, Favorite
+from .models import Location, Area, Space, Booking, Favorite, Contact
 from django.contrib.auth.models import User
 
 class LocationSerializer(serializers.ModelSerializer):
@@ -79,3 +79,8 @@ class FavoriteSerializer(serializers.ModelSerializer):
         model = Favorite
         fields = ('id', 'user', 'space', 'space_details', 'created_at')
         read_only_fields = ('user',)
+
+class ContactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Contact
+        fields = '__all__'
